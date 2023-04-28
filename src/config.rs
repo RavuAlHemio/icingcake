@@ -46,6 +46,16 @@ pub(crate) struct IcingaApiConfig {
 
     /// Password with which to authenticate against the Icinga API.
     pub password: String,
+
+    /// API call timeout in seconds.
+    #[serde(default = "IcingaApiConfig::default_timeout_s")]
+    pub timeout_s: u64,
+
+    /// Whether to allow invalid SSL/TLS certificates.
+    pub allow_invalid_certs: bool,
+}
+impl IcingaApiConfig {
+    pub fn default_timeout_s() -> u64 { 10 }
 }
 
 

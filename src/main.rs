@@ -4,6 +4,7 @@ mod config;
 use std::borrow::Cow;
 use std::convert::Infallible;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use askama::Template;
 use clap::Parser;
@@ -178,7 +179,6 @@ async fn handle_table(request: Request<Body>) -> Result<Response<Body>, Infallib
     };
 
     // contact Icinga
-    // TODO: SSL cert handling
     let client = CLIENT.get().expect("CLIENT not set?!");
     let response_res = client
         .request(Method::POST, icinga_url)
@@ -245,10 +245,14 @@ async fn main() {
     // load config
     let config = config::load().expect("failed to load config");
     let listen_socket_address = config.http_server.listen_socket_address;
+    let api_timeout = config.icinga_api.timeout_s;
+    let allow_invalid_certs = config.icinga_api.allow_invalid_certs;
     CONFIG.set(RwLock::new(config)).expect("CONFIG already set?!");
 
     // create HTTP client
     let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(api_timeout))
+        .danger_accept_invalid_certs(allow_invalid_certs)
         .build()
         .expect("failed to initialize HTTP client");
     CLIENT.set(client).expect("CLIENT already set?!");
