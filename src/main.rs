@@ -279,6 +279,8 @@ async fn handle_table(request: Request<Body>) -> Result<Response<Body>, Infallib
             });
         }
 
+        rows.sort_unstable();
+
         let template = TableTemplate {
             rows,
         };
