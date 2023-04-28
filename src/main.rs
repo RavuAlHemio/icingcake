@@ -87,11 +87,11 @@ async fn handle_index(_request: Request<Body>) -> Result<Response<Body>, Infalli
 
 async fn handle_static(request: Request<Body>, file_name: &str) -> Result<Response<Body>, Infallible> {
     let (mime_type, bytes) = if file_name == "script.js" {
-        ("text/javascript", include_bytes!("../static/script.js"))
+        ("text/javascript", &include_bytes!("../static/script.js")[..])
     } else if file_name == "script.ts" {
-        ("application/typescript", include_bytes!("../static/script.ts"))
+        ("application/typescript", &include_bytes!("../static/script.ts")[..])
     } else if file_name == "script.js.map" {
-        ("application/json", include_bytes!("../static/script.js.map"))
+        ("application/json", &include_bytes!("../static/script.js.map")[..])
     } else {
         return handle_404(request).await;
     };
