@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block body %}
+<table>
+	<tr>
+		<th class="host">Host</th>
+		<th class="service">Service</th>
+		<th class="state">State</th>
+		<th class="output">Output</th>
+	</tr>
+	{% for row in rows %}
+	<tr>
+		<td class="host">{{ row.host }}</td>
+		<td class="service">{{ row.service }}</td>
+		<td class="state">{{ row.state }}</td>
+		<td class="output">{{ row.output }}</td>
+	</tr>
+	{% endfor %}
+</table>
+{% endblock %}

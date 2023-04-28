@@ -2,6 +2,7 @@ mod config;
 
 
 use std::borrow::Cow;
+use std::cmp::{Ord, Ordering, PartialOrd};
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -14,7 +15,7 @@ use hyper::service::{make_service_fn, service_fn};
 use once_cell::sync::OnceCell;
 use percent_encoding::percent_decode_str;
 use tokio::sync::RwLock;
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::config::{CONFIG, CONFIG_PATH};
 
@@ -28,6 +29,43 @@ struct Opts {
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate;
+
+#[derive(Template)]
+#[template(path = "icinga_error.html")]
+struct IcingaErrorTemplate {
+    pub status_code: u16,
+    pub error_json: String,
+}
+
+#[derive(Template)]
+#[template(path = "table.html")]
+struct TableTemplate {
+    pub rows: Vec<RowPart>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RowPart {
+    pub host: String,
+    pub service: String,
+    pub output: String,
+    pub state: u8,
+}
+impl PartialOrd for RowPart {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(
+            // state is reversed!
+            other.state.cmp(&self.state)
+                .then_with(|| self.host.cmp(&other.host))
+                .then_with(|| self.service.cmp(&other.service))
+                .then_with(|| self.output.cmp(&other.output))
+        )
+    }
+}
+impl Ord for RowPart {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
 
 
 static CLIENT: OnceCell<reqwest::Client> = OnceCell::new();
@@ -167,7 +205,7 @@ async fn handle_table(request: Request<Body>) -> Result<Response<Body>, Infallib
         config_guard.icinga_api.clone()
     };
     let icinga_url_path = format!("objects/{}", objtype);
-    let icinga_url = match icinga_config.base_url.join("") {
+    let icinga_url = match icinga_config.base_url.join(&icinga_url_path) {
         Ok(u) => u,
         Err(e) => {
             error!(
@@ -177,33 +215,120 @@ async fn handle_table(request: Request<Body>) -> Result<Response<Body>, Infallib
             return return_500();
         },
     };
+    debug!("requesting Icinga URL: {}", icinga_url);
 
     // contact Icinga
     let client = CLIENT.get().expect("CLIENT not set?!");
     let response_res = client
-        .request(Method::POST, icinga_url)
+        .request(Method::POST, icinga_url.clone())
         .basic_auth(&icinga_config.username, Some(&icinga_config.password))
         .header("X-HTTP-Method-Override", "GET")
         .body(serde_json::to_string(&api_body).expect("cannot serialize serde_json::Value to JSON?!"))
         .send().await;
-
-    let template = IndexTemplate;
-    let rendered = match template.render() {
+    let response = match response_res {
         Ok(r) => r,
         Err(e) => {
-            error!("failed to render template: {}", e);
+            error!("failed to obtain response from {:?}: {}", icinga_url, e);
+            return return_500();
+        },
+    };
+    let response_status = response.status();
+    let response_bytes = match response.bytes().await {
+        Ok(rb) => rb,
+        Err(e) => {
+            error!("failed to obtain response bytes from {:?}: {}", icinga_url, e);
             return return_500();
         },
     };
 
-    Response::builder()
-        .status(200)
-        .header("Content-Type", "text/html; charset=utf-8")
-        .body(Body::from(rendered))
-        .or_else(|e| {
-            error!("failed to construct template response: {}", e);
-            return_500()
-        })
+    if response_status == 200 {
+        let response_json: serde_json::Value = match serde_json::from_slice(&response_bytes) {
+            Ok(rj) => rj,
+            Err(e) => {
+                error!("failed to parse response from {:?} as JSON: {}", icinga_url, e);
+                return return_500();
+            },
+        };
+
+        let mut rows = Vec::new();
+        let results = match response_json["results"].as_array() {
+            Some(r) => r,
+            None => {
+                error!("path $.results of {:?} response is not an array but {:?}", icinga_url, response_json["results"]);
+                return return_500();
+            },
+        };
+        for result in results {
+            let host = if objtype == "services" {
+                result["attrs"]["host_name"].as_str().unwrap_or("").to_owned()
+            } else {
+                result["attrs"]["name"].as_str().unwrap_or("").to_owned()
+            };
+            let service = if objtype == "services" {
+                result["attrs"]["name"].as_str().unwrap_or("").to_owned()
+            } else {
+                String::new()
+            };
+            let output = result["attrs"]["last_check_result"]["output"].as_str().unwrap_or("").to_owned();
+            let state = result["attrs"]["state"].as_u64().unwrap_or(5).try_into().unwrap_or(6);
+            rows.push(RowPart {
+                host,
+                service,
+                output,
+                state,
+            });
+        }
+
+        let template = TableTemplate {
+            rows,
+        };
+        let rendered = match template.render() {
+            Ok(r) => r,
+            Err(e) => {
+                error!("failed to render table template: {}", e);
+                return return_500();
+            },
+        };
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/html; charset=utf-8")
+            .body(Body::from(rendered))
+            .or_else(|e| {
+                error!("failed to construct HTML response: {}", e);
+                return_500()
+            })
+    } else {
+        let response_string = match String::from_utf8(Vec::from(response_bytes.as_ref())) {
+            Ok(rs) => rs,
+            Err(_) => {
+                let mut string = String::with_capacity(response_bytes.len());
+                for b in response_bytes {
+                    string.push(char::from_u32(b as u32).unwrap());
+                }
+                string
+            },
+        };
+
+        let template = IcingaErrorTemplate {
+            status_code: response_status.as_u16(),
+            error_json: response_string,
+        };
+        let rendered = match template.render() {
+            Ok(r) => r,
+            Err(e) => {
+                error!("failed to render error template: {}", e);
+                return return_500();
+            },
+        };
+        Response::builder()
+            .status(200)
+            .header("Content-Type", "text/html; charset=utf-8")
+            .body(Body::from(rendered))
+            .or_else(|e| {
+                error!("failed to construct HTML response: {}", e);
+                return_500()
+            })
+    }
 }
 
 async fn handle_http(request: Request<Body>) -> Result<Response<Body>, Infallible> {
