@@ -10,6 +10,7 @@ use clap::Parser;
 use form_urlencoded;
 use hyper::{Body, Method, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
+use once_cell::sync::OnceCell;
 use percent_encoding::percent_decode_str;
 use tokio::sync::RwLock;
 use tracing::error;
@@ -26,6 +27,9 @@ struct Opts {
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate;
+
+
+static CLIENT: OnceCell<reqwest::Client> = OnceCell::new();
 
 
 fn decode_path_parts(path: &str) -> Vec<String> {
@@ -174,11 +178,9 @@ async fn handle_table(request: Request<Body>) -> Result<Response<Body>, Infallib
     };
 
     // contact Icinga
-    // TODO: store the Client in a OnceCell or something
     // TODO: SSL cert handling
-    let client_res = reqwest::Client::builder()
-        .build();
-    let response_res = client_res.unwrap()
+    let client = CLIENT.get().expect("CLIENT not set?!");
+    let response_res = client
         .request(Method::POST, icinga_url)
         .basic_auth(&icinga_config.username, Some(&icinga_config.password))
         .header("X-HTTP-Method-Override", "GET")
@@ -245,6 +247,13 @@ async fn main() {
     let listen_socket_address = config.http_server.listen_socket_address;
     CONFIG.set(RwLock::new(config)).expect("CONFIG already set?!");
 
+    // create HTTP client
+    let client = reqwest::Client::builder()
+        .build()
+        .expect("failed to initialize HTTP client");
+    CLIENT.set(client).expect("CLIENT already set?!");
+
+    // create HTTP server
     let make_service = make_service_fn(|_conn| async {
         Ok::<_, Infallible>(service_fn(handle_http))
     });
