@@ -17,6 +17,7 @@ var Icingcake;
     function removeFilterRow(form, rowP) {
         deleteNode(rowP);
         updateRemoveFilterButtons(form);
+        updateFilterField(form);
     }
     function addSelectOption(select, value, key) {
         const opt = document.createElement("option");
@@ -25,6 +26,60 @@ var Icingcake;
         if (key !== undefined) {
             opt.value = key;
         }
+    }
+    function quoteIcingaFilter(s) {
+        const bits = ["\""];
+        for (let i = 0; i < s.length; i++) {
+            let c = s.charAt(i);
+            if (c == "\\") {
+                bits.push("\\\\");
+            }
+            else if (c == "\"") {
+                bits.push("\\\"");
+            }
+            else {
+                bits.push(c);
+            }
+        }
+        bits.push("\"");
+        return bits.join("");
+    }
+    function updateFilterField(form) {
+        const filterField = form.querySelector("input.filter-field");
+        if (filterField === null) {
+            return;
+        }
+        const criteria = [];
+        const rows = form.querySelectorAll("p.filter-row");
+        for (let r = 0; r < rows.length; r++) {
+            const criterionSelect = rows[r].querySelector("select.criterion");
+            const operatorSelect = rows[r].querySelector("select.operator");
+            const valueInput = rows[r].querySelector("input.value");
+            if (criterionSelect === null || operatorSelect === null || valueInput === null) {
+                continue;
+            }
+            const quotedValue = quoteIcingaFilter(valueInput.value);
+            const operator = operatorSelect.value;
+            const criterion = criterionSelect.value;
+            let expression = "";
+            if (operator === "eq") {
+                expression = `${criterion}==${quotedValue}`;
+            }
+            else if (operator === "ne") {
+                expression = `${criterion}!=${quotedValue}`;
+            }
+            else if (operator == "match") {
+                expression = `match(${quotedValue},${criterion})`;
+            }
+            else if (operator == "nmatch") {
+                expression = `!match(${quotedValue},${criterion})`;
+            }
+            else {
+                continue;
+            }
+            criteria.push(expression);
+        }
+        filterField.value = criteria.join(" && ");
     }
     function addFilterRow(form) {
         const filterRowP = document.createElement("p");
@@ -35,6 +90,8 @@ var Icingcake;
         criterionSelect.classList.add("criterion");
         addSelectOption(criterionSelect, "Host-Name", "host.name");
         addSelectOption(criterionSelect, "Service-Name", "service.name");
+        criterionSelect.addEventListener("change", () => updateFilterField(form));
+        criterionSelect.addEventListener("input", () => updateFilterField(form));
         const operatorSelect = document.createElement("select");
         filterRowP.appendChild(operatorSelect);
         operatorSelect.classList.add("operator");
@@ -42,10 +99,14 @@ var Icingcake;
         addSelectOption(operatorSelect, "entspricht nicht", "nmatch");
         addSelectOption(operatorSelect, "=", "eq");
         addSelectOption(operatorSelect, "\u2260", "ne");
+        operatorSelect.addEventListener("change", () => updateFilterField(form));
+        operatorSelect.addEventListener("input", () => updateFilterField(form));
         const valueInput = document.createElement("input");
         filterRowP.appendChild(valueInput);
         valueInput.type = "text";
         valueInput.classList.add("value");
+        valueInput.addEventListener("change", () => updateFilterField(form));
+        valueInput.addEventListener("input", () => updateFilterField(form));
         const addButton = document.createElement("input");
         filterRowP.appendChild(addButton);
         addButton.classList.add("add-button");
@@ -59,6 +120,7 @@ var Icingcake;
         removeButton.value = "\u2212";
         removeButton.addEventListener("click", () => removeFilterRow(form, filterRowP));
         updateRemoveFilterButtons(form);
+        updateFilterField(form);
     }
     function setUp() {
         const form = document.querySelector("form.icingcake-form");
@@ -74,6 +136,18 @@ var Icingcake;
         addSelectOption(objTypeSelect, "Host", "hosts");
         addSelectOption(objTypeSelect, "Service", "services");
         addFilterRow(form);
+        const filterField = document.createElement("input");
+        form.appendChild(filterField);
+        filterField.classList.add("filter-field");
+        filterField.type = "hidden";
+        filterField.name = "filter";
+        const submitP = document.createElement("p");
+        form.appendChild(submitP);
+        submitP.classList.add("submit");
+        const submitButton = document.createElement("input");
+        submitP.appendChild(submitButton);
+        submitButton.type = "submit";
+        submitButton.value = "abfragen";
         const noJsWarning = form.querySelector("p.no-js-warning");
         deleteNode(noJsWarning);
     }

@@ -17,6 +17,7 @@ module Icingcake {
 	function removeFilterRow(form: HTMLFormElement, rowP: HTMLParagraphElement) {
 		deleteNode(rowP);
 		updateRemoveFilterButtons(form);
+		updateFilterField(form);
 	}
 
 	function addSelectOption(select: HTMLSelectElement, value: string, key?: string|undefined) {
@@ -26,6 +27,61 @@ module Icingcake {
 		if (key !== undefined) {
 			opt.value = key;
 		}
+	}
+
+	function quoteIcingaFilter(s: string): string {
+		const bits = ["\""];
+		for (let i = 0; i < s.length; i++) {
+			let c = s.charAt(i);
+			if (c == "\\") {
+				bits.push("\\\\");
+			} else if (c == "\"") {
+				bits.push("\\\"");
+			} else {
+				bits.push(c);
+			}
+		}
+		bits.push("\"");
+		return bits.join("");
+	}
+
+	function updateFilterField(form: HTMLFormElement) {
+		const filterField = <HTMLInputElement|null>form.querySelector("input.filter-field");
+		if (filterField === null) {
+			return;
+		}
+
+		const criteria: string[] = [];
+		const rows: NodeListOf<HTMLParagraphElement> = form.querySelectorAll("p.filter-row");
+		for (let r = 0; r < rows.length; r++) {
+			const criterionSelect = <HTMLSelectElement|null>rows[r].querySelector("select.criterion");
+			const operatorSelect = <HTMLSelectElement|null>rows[r].querySelector("select.operator");
+			const valueInput = <HTMLInputElement|null>rows[r].querySelector("input.value");
+
+			if (criterionSelect === null || operatorSelect === null || valueInput === null) {
+				continue;
+			}
+
+			const quotedValue = quoteIcingaFilter(valueInput.value);
+			const operator = operatorSelect.value;
+			const criterion = criterionSelect.value;
+			let expression = "";
+			if (operator === "eq") {
+				expression = `${criterion}==${quotedValue}`;
+			} else if (operator === "ne") {
+				expression = `${criterion}!=${quotedValue}`;
+			} else if (operator == "match") {
+				expression = `match(${quotedValue},${criterion})`;
+			} else if (operator == "nmatch") {
+				expression = `!match(${quotedValue},${criterion})`;
+			} else {
+				continue;
+			}
+
+			criteria.push(expression);
+		}
+
+		filterField.value = criteria.join(" && ");
 	}
 
 	function addFilterRow(form: HTMLFormElement) {
@@ -38,6 +94,8 @@ module Icingcake {
 		criterionSelect.classList.add("criterion");
 		addSelectOption(criterionSelect, "Host-Name", "host.name");
 		addSelectOption(criterionSelect, "Service-Name", "service.name");
+		criterionSelect.addEventListener("change", () => updateFilterField(form));
+		criterionSelect.addEventListener("input", () => updateFilterField(form));
 
 		const operatorSelect = document.createElement("select");
 		filterRowP.appendChild(operatorSelect);
@@ -46,11 +104,15 @@ module Icingcake {
 		addSelectOption(operatorSelect, "entspricht nicht", "nmatch");
 		addSelectOption(operatorSelect, "=", "eq");
 		addSelectOption(operatorSelect, "\u2260", "ne");
+		operatorSelect.addEventListener("change", () => updateFilterField(form));
+		operatorSelect.addEventListener("input", () => updateFilterField(form));
 
 		const valueInput = document.createElement("input");
 		filterRowP.appendChild(valueInput);
 		valueInput.type = "text";
 		valueInput.classList.add("value");
+		valueInput.addEventListener("change", () => updateFilterField(form));
+		valueInput.addEventListener("input", () => updateFilterField(form));
 
 		const addButton = document.createElement("input");
 		filterRowP.appendChild(addButton);
@@ -67,6 +129,7 @@ module Icingcake {
 		removeButton.addEventListener("click", () => removeFilterRow(form, filterRowP));
 
 		updateRemoveFilterButtons(form);
+		updateFilterField(form);
 	}
 
 	function setUp() {
@@ -88,6 +151,21 @@ module Icingcake {
 		addSelectOption(objTypeSelect, "Service", "services");
 
 		addFilterRow(form);
+
+		const filterField = document.createElement("input");
+		form.appendChild(filterField);
+		filterField.classList.add("filter-field");
+		filterField.type = "hidden";
+		filterField.name = "filter";
+
+		const submitP = document.createElement("p");
+		form.appendChild(submitP);
+		submitP.classList.add("submit");
+
+		const submitButton = document.createElement("input");
+		submitP.appendChild(submitButton);
+		submitButton.type = "submit";
+		submitButton.value = "abfragen";
 
 		const noJsWarning = <HTMLParagraphElement>form.querySelector("p.no-js-warning");
 		deleteNode(noJsWarning);
