@@ -290,6 +290,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "from-to-repr"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca2a824e4db70356a5d78f74528ed4050c65c9fb5e963887eb13c774770fdddf"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -474,6 +485,7 @@ dependencies = [
  "askama",
  "clap",
  "form_urlencoded",
+ "from-to-repr",
  "hyper",
  "once_cell",
  "percent-encoding",

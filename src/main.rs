@@ -4,12 +4,14 @@ mod config;
 use std::borrow::Cow;
 use std::cmp::{Ord, Ordering, PartialOrd};
 use std::convert::Infallible;
+use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use askama::Template;
 use clap::Parser;
 use form_urlencoded;
+use from_to_repr::from_to_other;
 use hyper::{Body, Method, Request, Response, Server};
 use hyper::service::{make_service_fn, service_fn};
 use once_cell::sync::OnceCell;
@@ -24,6 +26,27 @@ use crate::config::{CONFIG, CONFIG_PATH};
 struct Opts {
     #[arg(default_value = "config.toml")]
     pub config_path: PathBuf,
+}
+
+#[derive(Copy, Clone, Debug)]
+#[from_to_other(base_type = u8, derive_compare = "as_int")]
+enum NagiosState {
+    Ok = 0,
+    Warning = 1,
+    Critical = 2,
+    Unknown = 3,
+    Other(u8),
+}
+impl fmt::Display for NagiosState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ok => write!(f, "Ok"),
+            Self::Warning => write!(f, "Warning"),
+            Self::Critical => write!(f, "Critical"),
+            Self::Unknown => write!(f, "Unknown"),
+            Self::Other(u) => write!(f, "{}", u),
+        }
+    }
 }
 
 #[derive(Template)]
@@ -48,7 +71,7 @@ struct RowPart {
     pub host: String,
     pub service: String,
     pub output: String,
-    pub state: u8,
+    pub state: NagiosState,
 }
 impl PartialOrd for RowPart {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -270,7 +293,8 @@ async fn handle_table(request: Request<Body>) -> Result<Response<Body>, Infallib
                 String::new()
             };
             let output = result["attrs"]["last_check_result"]["output"].as_str().unwrap_or("").to_owned();
-            let state = result["attrs"]["state"].as_u64().unwrap_or(5).try_into().unwrap_or(6);
+            let state_num = result["attrs"]["state"].as_u64().unwrap_or(5).try_into().unwrap_or(6);
+            let state = NagiosState::from(state_num);
             rows.push(RowPart {
                 host,
                 service,
